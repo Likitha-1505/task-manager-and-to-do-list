@@ -1,0 +1,945 @@
+from flask import Flask, render_template, request, redirect, url_for, flash, session
+import json
+import os
+
+app = Flask(_name_)
+app.secret_key = 'your_secret_key'
+
+# File paths
+USER_FILE = 'data/users.json'
+TASK_FILE = 'data/tasks.json'
+
+# Ensure JSON files exist
+if not os.path.exists('data'):
+    os.makedirs('data')
+if not os.path.exists(USER_FILE):
+    with open(USER_FILE, 'w') as f:
+        json.dump([], f)
+if not os.path.exists(TASK_FILE):
+    with open(TASK_FILE, 'w') as f:
+        json.dump([], f)
+
+# Load and save data functions
+def load_data(file_path):
+    with open(file_path, 'r') as file:
+        return json.load(file)
+
+def save_data(file_path, data):
+    with open(file_path, 'w') as file:
+        json.dump(data, file, indent=4)
+
+# Routes
+@app.route('/')
+def home():
+    return redirect(url_for('login'))
+
+@app.route('/register', methods=['GET', 'POST'])
+def register():
+    if request.method == 'POST':
+        username = request.form['username']
+        password = request.form['password']
+        users = load_data(USER_FILE)
+
+        if any(user['username'] == username for user in users):
+            flash('Username already exists!', 'error')
+            return redirect(url_for('register'))
+
+        users.append({'username': username, 'password': password})
+        save_data(USER_FILE, users)
+        flash('Registration successful! Please log in.', 'success')
+        return redirect(url_for('login'))
+
+    return render_template('register.html')
+
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    if request.method == 'POST':
+        username = request.form['username']
+        password = request.form['password']
+        users = load_data(USER_FILE)
+
+        user = next((u for u in users if u['username'] == username and u['password'] == password), None)
+        if user:
+            session['username'] = username
+            return redirect(url_for('tasks'))
+        else:
+            flash('Invalid credentials.', 'error')
+    return render_template('login.html')
+
+@app.route('/tasks', methods=['GET', 'POST'])
+def tasks():
+    if 'username' not in session:
+        return redirect(url_for('login'))
+
+    tasks = load_data(TASK_FILE)
+
+    if request.method == 'POST':
+        new_task = {
+            'title': request.form['title'],
+            'priority': request.form['priority'],
+            'difficulty': request.form['difficulty'],
+            'due_date': request.form['due_date'],
+            'due_time': request.form['due_time'],  # New time field
+            'completed': False,
+            'owner': session['username']
+        }
+
+        # Check for duplicate tasks with the same time and date
+        user_tasks = [task for task in tasks if task['owner'] == session['username']]
+        for task in user_tasks:
+            if task['due_date'] == new_task['due_date'] and task['due_time'] == new_task['due_time']:
+                flash('You already have a task scheduled at this time.', 'error')
+                return redirect(url_for('tasks'))
+
+        tasks.append(new_task)
+        save_data(TASK_FILE, tasks)
+        flash('Task added successfully!', 'success')
+
+    user_tasks = [task for task in tasks if task['owner'] == session['username']]
+    return render_template('tasks.html', tasks=user_tasks, theme=session.get('theme', 'default'), mode=session.get('mode', 'light'))
+
+@app.route('/logout')
+def logout():
+    session.pop('username', None)
+    return redirect(url_for('login'))
+
+@app.route('/complete_task/<int:task_id>')
+def complete_task(task_id):
+    tasks = load_data(TASK_FILE)
+    task = tasks[task_id]
+    task['completed'] = not task['completed']
+    save_data(TASK_FILE, tasks)
+    return redirect(url_for('tasks'))
+
+@app.route('/delete_task/<int:task_id>')
+def delete_task(task_id):
+    tasks = load_data(TASK_FILE)
+    tasks.pop(task_id)
+    save_data(TASK_FILE, tasks)
+    return redirect(url_for('tasks'))
+
+@app.route('/change_theme', methods=['GET'])
+def change_theme():
+    theme = request.args.get('theme', 'default')
+    mode = request.args.get('mode', 'light')
+    session['theme'] = theme
+    session['mode'] = mode
+    return redirect(url_for('tasks'))
+
+if _name_ == '_main_':
+    app.run(debug=True)
+
+
+from flask import Flask, render_template, request, redirect, url_for, flash, session
+import json
+import os
+
+app = Flask(_name_)
+app.secret_key = 'your_secret_key'  # Secure in production (use environment variables)
+
+# File paths
+USER_FILE = 'data/users.json'
+TASK_FILE = 'data/tasks.json'
+
+
+# Utility: Ensure JSON files exist and handle file creation
+def ensure_files_exist():
+    if not os.path.exists('data'):
+        os.makedirs('data')
+    if not os.path.exists(USER_FILE):
+        save_data(USER_FILE, [])
+    if not os.path.exists(TASK_FILE):
+        save_data(TASK_FILE, [])
+
+
+# Load and save JSON safely
+def load_data(file_path):
+    try:
+        with open(file_path, 'r') as file:
+            return json.load(file)
+    except (json.JSONDecodeError, FileNotFoundError):
+        return []
+
+
+def save_data(file_path, data):
+    try:
+        with open(file_path, 'w') as file:
+            json.dump(data, file, indent=4)
+    except Exception as e:
+        print(f"Failed to save data: {e}")
+
+
+# Check user authentication before accessing specific routes
+def is_authenticated():
+    return 'username' in session
+
+
+def login_required(func):
+    """
+    Decorator to ensure user is logged in.
+    """
+    def wrapper(*args, **kwargs):
+        if not is_authenticated():
+            flash('Please log in to access this page.', 'error')
+            return redirect(url_for('login'))
+        return func(*args, **kwargs)
+
+    wrapper._name_ = func._name_
+    return wrapper
+
+
+# Ensure necessary JSON files exist at startup
+ensure_files_exist()
+
+
+# Routes
+@app.route('/')
+def home():
+    return redirect(url_for('login'))
+
+
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    if request.method == 'POST':
+        username = request.form['username']
+        password = request.form['password']
+        users = load_data(USER_FILE)
+
+        # Authenticate user
+        user = next((u for u in users if u['username'] == username and u['password'] == password), None)
+        if user:
+            session['username'] = username
+            flash('Login successful!', 'success')
+            return redirect(url_for('task_manager'))
+        else:
+            flash('Invalid credentials.', 'error')
+
+    return render_template('login.html')
+
+
+@app.route('/logout')
+def logout():
+    session.pop('username', None)
+    flash('You have been logged out.', 'success')
+    return redirect(url_for('login'))
+
+
+@app.route('/register', methods=['GET', 'POST'])
+def register():
+    if request.method == 'POST':
+        username = request.form['username']
+        password = request.form['password']
+        users = load_data(USER_FILE)
+
+        # Prevent registration with an existing username
+        if any(user['username'] == username for user in users):
+            flash('Username already exists.', 'error')
+            return redirect(url_for('register'))
+
+        # Save the new user
+        users.append({'username': username, 'password': password})
+        save_data(USER_FILE, users)
+        flash('Registration successful! You can now log in.', 'success')
+        return redirect(url_for('login'))
+
+    return render_template('register.html')
+
+
+@app.route('/task-manager', methods=['GET', 'POST'])
+@login_required
+def task_manager():
+    tasks = load_data(TASK_FILE)
+
+    # Only show the user's tasks
+    user_tasks = [task for task in tasks if task['owner'] == session['username']]
+
+    if request.method == 'POST':
+        # Add new task
+        new_task = {
+            'title': request.form['title'],
+            'priority': request.form['priority'],
+            'difficulty': request.form['difficulty'],
+            'due_date': request.form['due_date'],
+            'completed': False,
+            'owner': session['username']
+        }
+        tasks.append(new_task)
+        save_data(TASK_FILE, tasks)
+        flash('Task added successfully!', 'success')
+        return redirect(url_for('task_manager'))
+
+    return render_template('task_m.html', tasks=user_tasks)
+
+
+@app.route('/delete-task/<int:task_id>', methods=['POST'])
+@login_required
+def delete_task(task_id):
+    tasks = load_data(TASK_FILE)
+    # Only delete user's own tasks
+    tasks = [task for task in tasks if not (task['id'] == task_id and task['owner'] == session['username'])]
+    save_data(TASK_FILE, tasks)
+    flash('Task deleted successfully.', 'success')
+    return redirect(url_for('task_manager'))
+
+
+@app.route('/update-task/<int:task_id>', methods=['POST'])
+@login_required
+def update_task(task_id):
+    tasks = load_data(TASK_FILE)
+    for task in tasks:
+        if task['id'] == task_id and task['owner'] == session['username']:
+            task['title'] = request.form['title']
+            task['priority'] = request.form['priority']
+            task['difficulty'] = request.form['difficulty']
+            task['due_date'] = request.form['due_date']
+            break
+    save_data(TASK_FILE, tasks)
+    flash('Task updated successfully!', 'success')
+    return redirect(url_for('task_manager'))
+
+
+if _name_ == '_main_':
+    app.run(debug=True)
+
+//script.js
+document.getElementById('theme-toggle').addEventListener('click', () => {
+  document.body.classList.toggle('dark-mode');
+});
+
+//Login.html
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login - Task Manager</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+</head>
+<body class="{{ theme }}-{{ mode }}">
+
+    <div class="login-container">
+        <div class="login-card">
+            <h1>Login</h1>
+            <form method="POST" action="{{ url_for('login') }}">
+                <div class="input-group">
+                    <input type="text" name="username" placeholder="Username" required>
+                </div>
+                <div class="input-group">
+                    <input type="password" name="password" placeholder="Password" required>
+                </div>
+                <button type="submit">Log In</button>
+            </form>
+            <div class="register-link">
+                <p>Don't have an account? <a href="{{ url_for('register') }}">Register here</a></p>
+            </div>
+        </div>
+    </div>
+
+</body>
+</html>
+
+//Register.html
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Register - Task Manager</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+</head>
+<body class="{{ theme }}-{{ mode }}">
+
+    <div class="register-container">
+        <div class="register-card">
+            <h1>Register</h1>
+            <form method="POST" action="{{ url_for('register') }}">
+                <div class="input-group">
+                    <input type="text" name="username" placeholder="Username" required>
+                </div>
+                <div class="input-group">
+                    <input type="password" name="password" placeholder="Password" required>
+                </div>
+                <div class="input-group">
+                    <input type="password" name="confirm_password" placeholder="Confirm Password" required>
+                </div>
+                <button type="submit">Register</button>
+            </form>
+            <div class="login-link">
+                <p>Already have an account? <a href="{{ url_for('login') }}">Login here</a></p>
+            </div>
+        </div>
+    </div>
+
+</body>
+</html>
+
+//Index.html
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Task Manager</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+</head>
+
+<body>
+    <header class="header">
+        <h1>Task Manager</h1>
+    </header>
+
+    <section class="task-form-section">
+        <h2>Add New Task</h2>
+        <form method="POST" action="{{ url_for('add') }}">
+            <div>
+                <input type="text" name="title" placeholder="Task Title" required>
+                <select name="priority">
+                    <option value="High">High</option>
+                    <option value="Medium">Medium</option>
+                    <option value="Low">Low</option>
+                </select>
+                <select name="difficulty">
+                    <option value="Easy">Easy</option>
+                    <option value="Medium">Medium</option>
+                    <option value="Hard">Hard</option>
+                </select>
+                <input type="date" name="due_date" required>
+            </div>
+            <button type="submit">Add Task</button>
+        </form>
+    </section>
+
+    <section class="task-list-section">
+        <h2>Your Tasks</h2>
+        <ul id="task-list">
+            {% for task in tasks %}
+            <li>
+                <strong>{{ task.title }}</strong> |
+                Priority: {{ task.priority }} |
+                Difficulty: {{ task.difficulty }} |
+                Due Date: {{ task.due_date }}
+                <form action="{{ url_for('delete', task_id=task.id) }}" method="POST" style="display:inline;">
+                    <button type="submit">Delete</button>
+                </form>
+                <form action="{{ url_for('update', task_id=task.id) }}" method="POST" style="display:inline;">
+                    <input type="text" name="title" placeholder="New Title" required>
+                    <input type="date" name="due_date" required>
+                    <button type="submit">Update</button>
+                </form>
+            </li>
+            {% endfor %}
+        </ul>
+    </section>
+
+    <script src="{{ url_for('static', filename='script.js') }}"></script>
+</body>
+</html>
+
+//Base.html
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <title>Task Manager</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+
+    <script defer src="{{ url_for('static', filename='script.js') }}"></script>
+</head>
+
+
+<body class="light-mode blue-theme">
+
+    <!-- HEADER SECTION -->
+    <header class="main-header">
+        <div class="container header-container">
+            <h1 class="site-title">Task Manager</h1>
+            <div class="user-info">
+                <p>Welcome, {{ session.get('username', 'Guest') }}!</p>
+                {% if session.get('username') %}
+                    <a href="{{ url_for('logout') }}" class="btn btn-logout">Logout</a>
+                {% else %}
+                    <a href="{{ url_for('login') }}" class="btn btn-login">Login</a>
+                {% endif %}
+            </div>
+        </div>
+    </header>
+
+    <!-- NAVIGATION & THEME CONTROLS -->
+    <nav class="theme-nav">
+        <div class="container theme-container">
+            <button onclick="toggleTheme()" class="btn btn-theme-toggle">Toggle Dark Mode</button>
+            <div class="theme-selector">
+                <label for="theme-color">Select Theme Color:</label>
+                <select id="theme-color" onchange="changeThemeColor(event)" class="theme-select">
+                    <option value="blue-theme">Blue</option>
+                    <option value="green-theme">Green</option>
+                    <option value="red-theme">Red</option>
+                    <option value="purple-theme">Purple</option>
+                </select>
+            </div>
+        </div>
+    </nav>
+
+    <!-- MAIN CONTENT AREA -->
+    <main class="main-content container">
+        {% block content %}{% endblock %}
+    </main>
+<script>
+    // Toggle Dark/Light Mode
+    function toggleTheme() {
+        document.body.classList.toggle('dark-mode');
+    }
+
+    // Change Theme Color
+    function changeThemeColor(event) {
+        const selectedTheme = event.target.value;
+        document.body.classList.remove('blue-theme', 'green-theme', 'red-theme', 'purple-theme');
+        document.body.classList.add(selectedTheme);
+    }
+</script>
+
+
+<div class="theme-toggle-section">
+  <select id="theme-selector">
+    <option value="blue-theme">Blue</option>
+    <option value="green-theme">Green</option>
+    <option value="red-theme">Red</option>
+    <option value="purple-theme">Purple</option>
+  </select>
+</div>
+
+<div class="task-form-section">
+  <input type="text" id="new-task-input" placeholder="Task Title">
+  <input type="time" id="new-task-time">
+  <button id="add-task-button">Add Task</button>
+</div>
+
+<div class="task-list-section">
+  <ul id="task-list"></ul>
+</div>
+<div class="main-container">
+  <!-- Login Card -->
+  <div class="card">
+    <h2>Login</h2>
+    <form action="#" method="POST">
+      <input type="email" placeholder="Enter your email" required>
+      <input type="password" placeholder="Enter your password" required>
+      <button type="submit">Login</button>
+    </form>
+    <div class="form-link">Don't have an account? <span onclick="toggleForm()">Sign Up</span></div>
+  </div>
+
+  <!-- Registration Card -->
+  <div class="card">
+    <h2>Register</h2>
+    <form action="#" method="POST">
+      <input type="text" placeholder="Full Name" required>
+      <input type="email" placeholder="Enter your email" required>
+      <input type="password" placeholder="Create a password" required>
+      <button type="submit">Register</button>
+    </form>
+    <div class="form-link">Already have an account? <span onclick="toggleForm()">Login</span></div>
+  </div>
+</div>
+
+
+<footer>
+  © Task Manager App - 2024
+</footer>
+
+
+</body>
+
+
+
+</html>
+
+//Tasks.html
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Task Manager</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+</head>
+<body class="{{ theme }}-{{ mode }}">
+    <div class="navbar">
+        <div>
+            <strong>Task Manager</strong>
+        </div>
+        <div class="theme-switcher">
+            <form method="GET" action="{{ url_for('change_theme') }}">
+                <label for="theme-select">Theme:</label>
+                <select id="theme-select" name="theme" onchange="this.form.submit()">
+                    <option value="blue" {% if theme == 'blue' %}selected{% endif %}>Blue</option>
+                    <option value="green" {% if theme == 'green' %}selected{% endif %}>Green</option>
+                    <option value="red" {% if theme == 'red' %}selected{% endif %}>Red</option>
+                    <option value="purple" {% if theme == 'purple' %}selected{% endif %}>Purple</option>
+                </select>
+
+                <label for="mode-select">Mode:</label>
+                <select id="mode-select" name="mode" onchange="this.form.submit()">
+                    <option value="light" {% if mode == 'light' %}selected{% endif %}>Light</option>
+                    <option value="dark" {% if mode == 'dark' %}selected{% endif %}>Dark</option>
+                </select>
+            </form>
+        </div>
+        <div>
+            <a href="{{ url_for('logout') }}">Logout</a>
+        </div>
+    </div>
+
+    <main>
+        <h1>Welcome, {{ session['username'] }}</h1>
+
+        <form method="POST" action="{{ url_for('tasks') }}" class="task-form">
+            <h3>Add New Task</h3>
+            <input type="text" name="title" placeholder="Task Title" required>
+            <select name="priority" required>
+                <option value="" disabled selected>Priority</option>
+                <option value="Low">Low</option>
+                <option value="Medium">Medium</option>
+                <option value="High">High</option>
+            </select>
+            <select name="difficulty" required>
+                <option value="" disabled selected>Difficulty</option>
+                <option value="Easy">Easy</option>
+                <option value="Medium">Medium</option>
+                <option value="Hard">Hard</option>
+            </select>
+            <input type="date" name="due_date" required>
+            <input type="time" name="due_time" required> <!-- New time input -->
+            <button type="submit">Add Task</button>
+        </form>
+
+        <div class="task-list">
+            <h2>Your Tasks</h2>
+            <ul>
+                {% for task in tasks %}
+                <li>
+                    <div>
+                        <strong>{{ task.title }}</strong>
+                        - Priority: {{ task.priority }}
+                        - Difficulty: {{ task.difficulty }}
+                        - Due: {{ task.due_date }} at {{ task.due_time }}
+                        - Status:
+                        {% if task.completed %}
+                            <span style="color: green;">Completed</span>
+                        {% else %}
+                            <span style="color: red;">Pending</span>
+                        {% endif %}
+                    </div>
+                    <div class="actions">
+                        <a href="{{ url_for('complete_task', task_id=loop.index0) }}">
+                            {% if task.completed %} Mark as Pending {% else %} Mark as Done {% endif %}
+                        </a>
+                        <a href="{{ url_for('delete_task', task_id=loop.index0) }}" style="background: red;">Delete</a>
+                    </div>
+                </li>
+                {% endfor %}
+            </ul>
+        </div>
+    </main>
+
+    <footer>
+        <p>&copy; {{ session['username'] }}'s Task Manager</p>
+    </footer>
+</body>
+</html>
+
+//Styles.css
+/* General Styling */
+body {
+  margin: 0;
+  font-family: 'Times new roman', sans-serif;
+  line-height: 1.6;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+  align-items: center;
+  height: 100vh;
+  background-color: #f5f5f5;
+}
+
+/* Theme Colors */
+body.blue-light {
+  background-color: #e3f2fd;
+  color: #0d47a1;
+}
+
+body.blue-dark {
+  background-color: #0d47a1;
+  color: #bbdefb;
+}
+
+body.green-light {
+  background-color: #abeacb;
+  color: #2e7d32;
+}
+
+body.green-dark {
+  background-color: #2e7d32;
+  color: #abeacb;
+}
+
+body.red-light {
+  background-color: #ecc4bd;
+  color: #b71c1c;
+}
+
+body.red-dark {
+  background-color: #b71c1c;
+  color: #ecc4bd;
+}
+body.purple-light {
+  background-color: #948bb1;
+  color: #170647;
+}
+
+body.purple-dark {
+  background-color: #170647;
+  color: #948bb1;
+}
+
+/* Navbar Styling */
+.navbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 20px;
+  background-color: rgba(0, 0, 0, 0.1);
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+  width: 100%;
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+.navbar select {
+  margin-left: 10px;
+  padding: 5px 10px;
+  border-radius: 5px;
+  border: 1px solid #ccc;
+  font-size: 1em;
+  transition: background-color 0.3s ease;
+}
+
+.navbar select:hover {
+  background-color: #f5f5f5;
+}
+
+/* Register Page Styling */
+.register-container {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  height: 100vh;
+  background: rgba(0, 0, 0, 0.05);
+}
+
+.register-card {
+  background-color: white;
+  padding: 30px 40px;
+  width: 100%;
+  max-width: 400px;
+  border-radius: 10px;
+  box-shadow: 0 6px 12px rgba(0, 0, 0, 0.1);
+  text-align: center;
+}
+
+.register-card h1 {
+  font-size: 2.2em;
+  color: #333;
+  margin-bottom: 20px;
+}
+
+.input-group {
+  margin-bottom: 20px;
+}
+
+.input-group input {
+  width: 100%;
+  padding: 12px;
+  font-size: 1em;
+  border: 1px solid #ccc;
+  border-radius: 8px;
+  transition: all 0.3s ease;
+  background-color: #f9f9f9;
+}
+
+.input-group input:focus {
+  border-color: #00796b;
+  background-color: #ffffff;
+  outline: none;
+}
+
+button {
+  width: 100%;
+  padding: 12px;
+  font-size: 1em;
+  border-radius: 8px;
+  border: none;
+  background-color: #00796b;
+  color: white;
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+button:hover {
+  background-color: #004d40;
+  transform: scale(1.05);
+}
+
+.login-link {
+  margin-top: 15px;
+  font-size: 1em;
+  color: #555;
+}
+
+.login-link a {
+  color: #00796b;
+  text-decoration: none;
+  transition: text-decoration 0.3s ease;
+}
+
+.login-link a:hover {
+  text-decoration: underline;
+}
+
+/* Task Form Section */
+.task-form {
+  max-width: 600px;
+  margin: 20px auto;
+  padding: 20px;
+  background: linear-gradient(135deg, #ffffff, #f8f9fa);
+  border-radius: 12px;
+  box-shadow: 0 6px 12px rgba(0, 0, 0, 0.15);
+  text-align: center;
+}
+
+.task-form h3 {
+  margin-bottom: 10px;
+  font-size: 1.8em;
+  color: #333;
+}
+
+.task-form input,
+.task-form select,
+.task-form button {
+  width: calc(100% - 20px);
+  margin: 10px 0;
+  padding: 12px;
+  border-radius: 8px;
+  border: 1px solid #ddd;
+  font-size: 1em;
+  transition: all 0.3s ease;
+}
+
+.task-form button {
+  background-color: #00796b;
+  color: white;
+}
+
+.task-form button:hover {
+  background-color: #004d40;
+  transform: scale(1.05);
+}
+
+/* Task List Section */
+/* Task List Buttons Alignment */
+.task-list .actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px; /* Adds space between buttons */
+}
+
+.task-list .actions a {
+  padding: 8px 12px;
+  border-radius: 5px;
+  text-decoration: none;
+  font-size: 0.9em;
+  color: white;
+  background-color: #00796b;
+  transition: background-color 0.3s ease;
+}
+
+.task-list .actions a:hover {
+  background-color: #004d40;
+}
+
+
+.task-list h2 {
+  text-align: center;
+  margin-bottom: 20px;
+  font-size: 2em;
+  color: #333;
+}
+
+.task-list ul {
+  list-style: none;
+  padding: 0;
+}
+
+.task-list li {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 10px;
+  margin-bottom: 10px;
+  background: linear-gradient(135deg, #f9f9f9, #ffffff);
+  border-radius: 8px;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.task-list li:hover {
+  transform: scale(1.02);
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+}
+
+.task-list .actions a {
+  margin: 0 5px;
+  padding: 8px 12px;
+  border-radius: 5px;
+  text-decoration: none;
+  font-size: 0.9em;
+  color: white;
+  background-color: #00796b;
+  transition: background-color 0.3s ease;
+}
+
+.task-list .actions a:hover {
+  background-color: #004d40;
+}
+
+/* Footer */
+footer {
+  text-align: center;
+  padding: 15px;
+  margin-top: auto;
+  background: rgba(0, 0, 0, 0.05);
+  font-size: 1em;
+  color: #555;
+  box-shadow: 0 -4px 8px rgba(0, 0, 0, 0.1);
+}
+
+/* Responsive Styles */
+@media (max-width: 768px) {
+  .register-card,
+  .task-form,
+  .task-list {
+    padding: 15px;
+  }
+
+  .task-form input,
+  .task-form select,
+  .task-form button {
+    padding: 8px;
+  }
+}
+
+
